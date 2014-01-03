@@ -276,7 +276,55 @@
 
 
 
+
+
+
+
+    function calculateSellPrice1(history, listings) {
+        // Fairly safe sell
+        // Highest average price in the last 24 hours
+        // Must be at least 1p below lowest current listing
+
+        var oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+        var highestAverage = 0;
+        history.forEach(function(historyItem) {
+            var d = new Date(historyItem[0]);
+            if (d.getTime() > oneDayAgo) {
+                if (historyItem[1] > highestAverage) {
+                    highestAverage = historyItem[1];
+                }
+            }
+        });
+
+        if (!highestAverage) {
+            return 0;
+        }
+
+        if (Object.keys(listings).length === 0) {
+            return 0;
+        }
+
+        var firstListing = listings[Object.keys(listings)[0]];
+
+        if (highestAverage < (firstListing.converted_price + firstListing.converted_fee - 1)) {
+            return firstListing.converted_price - 1;
+        } else {
+            return market.getPriceBeforeFees(highestAverage);
+        }
+    }
+
+
+
     var market = new SteamMarket(g_rgAppContextData, g_strInventoryLoadURL, g_rgWalletInfo);
+
+    var sellQueue = async.queue(function(task, next) {
+        market.sellItem(task.item, task.sellPrice, function(err, data) {
+            if (!err) {
+                console.log(task.item.name + ' put up for sale at ' + task.sellPrice + ' (' + market.getPriceIncludingFees(task.sellPrice) + ')');
+            }
+            next();
+        });
+    }, 1);
 
     market.getInventory(753, function(err, items) {
         console.log(items);
@@ -306,9 +354,19 @@
                     }
                     var firstListing = listings[Object.keys(listings)[0]];
                     console.log('First listing price: ' + firstListing.converted_price + ' + ' + firstListing.converted_fee + ' = ' + (firstListing.converted_price + firstListing.converted_fee));
+
+                    var sellPrice = calculateSellPrice1(history, listings);
+                    console.log('Calculated sell price: ' + sellPrice + ' (' + market.getPriceIncludingFees(sellPrice) + ')');
+                    if (sellPrice > 0) {
+                        sellQueue.push({
+                            item: item,
+                            sellPrice: sellPrice
+                        });
+                    }
                 });
             });
         });
 
     });
+
 })(jQuery, async, g_rgAppContextData, g_strInventoryLoadURL, g_rgWalletInfo);
