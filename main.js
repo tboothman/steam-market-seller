@@ -2,29 +2,28 @@
 // @name           Steam market seller
 // @namespace      https://github.com/tboothman/steam-market-seller
 // @description    Quickly sell items on steam market
-// @version        0.3
+// @version        0.4
 // @include        http://steamcommunity.com/id/*/inventory
 // @require        https://raw.github.com/caolan/async/master/lib/async.js
 // @grant          none
 // ==/UserScript==
 
-(function($, async, g_rgAppContextData, g_strInventoryLoadURL){
-    function SteamMarket(appContext, inventoryUrl) {
+(function($, async, g_rgAppContextData, g_strInventoryLoadURL, g_rgWalletInfo) {
+
+    function SteamMarket(appContext, inventoryUrl, walletInfo) {
         this.appContext = appContext;
         this.inventoryUrl = inventoryUrl;
+        this.walletInfo = walletInfo;
     }
 
-    // Get all your inventory items for this game. Items are grouped by 'context'
+    // Gets all items in your inventory for a game
     // e.g.
-    // {
-    //      2: { // Inventory for context 2
-    //          1000: { // An item
-    //              id: 1000,
-    //              market_name: "Bloodstone of the Ancestor",
-    //              ....
-    //          }
-    //      }
-    // }
+    // [: { // An item
+    //          id: 1000,
+    //          market_name: "Bloodstone of the Ancestor",
+    //          ....
+    //    }
+    // ]
     //
     // Item:
     //{"id":"60967810",
@@ -57,32 +56,40 @@
 
         // Build the requests for each inventory context as tasks for async
         for (contextId in game.rgContexts) {
-            tasks[contextId] = (function(contextId) { return function(next) {
-                    $.get(self.inventoryUrl+gameId+'/'+contextId+'/', function(data) {
+            tasks[contextId] = (function(contextId) {
+                return function(next) {
+                    $.get(self.inventoryUrl + gameId + '/' + contextId + '/', function(data) {
                         if (!data && !data.success) {
                             return next(true);
                         }
 
                         next(null, data);
                     }, 'json');
-                }})(contextId);
+                }
+            })(contextId);
         }
 
+        // Request all the inventories
         async.parallel(tasks, function(err, results) {
             if (err) {
                 return callback(err);
             }
 
+            var items = [];
+
             for (var id in results) {
                 if (results[id].rgInventory.length === 0) {
-                    // Fix the broken array inheritance on steam's site. Force an array back to an Array
-                    results[id] = [];
                     continue;
                 }
                 results[id] = denormalizeItems(results[id], id);
+
+                for (var i in results[id]) {
+                    results[id][i].contextid = id;
+                    items.push(results[id][i]);
+                }
             }
 
-            callback(null, results);
+            callback(null, items);
         });
     };
 
@@ -105,7 +112,7 @@
                 callback(null, data);
             },
             crossDomain: true,
-            xhrFields: { withCredentials: true },
+            xhrFields: {withCredentials: true},
             dataType: 'json'
         });
     };
@@ -115,26 +122,27 @@
     };
 
     // Get the price history for an item
-    // PriceHistory is an array of prices in the form [data, price, number sold string]
-    // e.g. [["Fri, 19 Jul 2013 01:00:00 +0000",7.30050206184,"362 sold"]]
+    // PriceHistory is an array of prices in the form [data, price, number sold]
+    // e.g. [["Fri, 19 Jul 2013 01:00:00 +0000",7.30050206184,362]]
     // Prices are ordered by oldest to most recent
     // Price is inclusive of fees
     SteamMarket.prototype.getPriceHistory = function(item, callback/*(err, priceHistory)*/) {
         $.get('http://steamcommunity.com/market/pricehistory/', {
-                appid: item.appid,
-                market_hash_name: item.market_hash_name
-            }, function(data) {
-                if (!data || !data.success || !data.prices) {
-                    return callback(true);
-                }
+            appid: item.appid,
+            market_hash_name: item.market_hash_name
+        }, function(data) {
+            if (!data || !data.success || !data.prices) {
+                return callback(true);
+            }
 
-                // Multiply out prices so they're in pennies
-                for (var i = 0; i < data.prices.length; i++) {
-                    data.prices[i][1] *= 100;
-                }
+            // Multiply out prices so they're in pennies
+            for (var i = 0; i < data.prices.length; i++) {
+                data.prices[i][1] *= 100;
+                data.prices[i][2] = parseInt(100, 10);
+            }
 
-                callback(null, data.prices);
-            }, 'json');
+            callback(null, data.prices);
+        }, 'json');
     };
 
     // Get the sales listings for this item in the market
@@ -157,8 +165,8 @@
     //	 "asset":{"currency":0,"appid":570,"contextid":"2","id":"1113797403","amount":"1"}
     // }
     SteamMarket.prototype.getListings = function(item, callback/*err, listings*/) {
-        $.get('http://steamcommunity.com/market/listings/'+item.appid+'/'+
-                encodeURIComponent(item.market_hash_name)+'/render/?query=&search_descriptions=0&start=0&count=10', function(data) {
+        $.get('http://steamcommunity.com/market/listings/' + item.appid + '/' +
+                encodeURIComponent(item.market_hash_name) + '/render/?query=&search_descriptions=0&start=0&count=10', function(data) {
 
             if (!data || !data.success || !data.listinginfo) {
                 return callback(true);
@@ -167,8 +175,76 @@
         });
     };
 
+    // Calculate the price before fees (seller price) from the buyer price
+    SteamMarket.prototype.getPriceBeforeFees = function(price, item) {
+        price = Math.round(price);
+        // market_fee may or may not exist - this is copied from steam's code
+        var publisherFee = (item && typeof item.market_fee != 'undefined') ? item.market_fee : this.walletInfo['wallet_publisher_fee_percent_default'];
+        var feeInfo = CalculateFeeAmount(price, publisherFee, this.walletInfo);
+
+        return price - feeInfo.fees;
+    };
+
+    // Calculate the buyer price from the seller price
+    SteamMarket.prototype.getPriceIncludingFees = function(price, item) {
+        price = Math.round(price);
+        // market_fee may or may not exist - this is copied from steam's code
+        var publisherFee = (item && typeof item.market_fee != 'undefined') ? item.market_fee : this.walletInfo['wallet_publisher_fee_percent_default'];
+        var feeInfo = CalculateAmountToSendForDesiredReceivedAmount(price, publisherFee, this.walletInfo);
+
+        return feeInfo.amount;
+    };
+
+    function CalculateFeeAmount(amount, publisherFee, walletInfo) {
+        if (!walletInfo['wallet_fee'])
+            return 0;
+        publisherFee = (typeof publisherFee == 'undefined') ? 0 : publisherFee;
+        // Since CalculateFeeAmount has a Math.floor, we could be off a cent or two. Let's check:
+        var iterations = 0; // shouldn't be needed, but included to be sure nothing unforseen causes us to get stuck
+        var nEstimatedAmountOfWalletFundsReceivedByOtherParty = parseInt((amount - parseInt(walletInfo['wallet_fee_base'])) / (parseFloat(walletInfo['wallet_fee_percent']) + parseFloat(publisherFee) + 1));
+        var bEverUndershot = false;
+        var fees = CalculateAmountToSendForDesiredReceivedAmount(nEstimatedAmountOfWalletFundsReceivedByOtherParty, publisherFee, walletInfo);
+        while (fees.amount != amount && iterations < 10) {
+            if (fees.amount > amount) {
+                if (bEverUndershot) {
+                    fees = CalculateAmountToSendForDesiredReceivedAmount(nEstimatedAmountOfWalletFundsReceivedByOtherParty - 1, publisherFee, walletInfo);
+                    fees.steam_fee += (amount - fees.amount);
+                    fees.fees += (amount - fees.amount);
+                    fees.amount = amount;
+                    break;
+                } else {
+                    nEstimatedAmountOfWalletFundsReceivedByOtherParty--;
+                }
+            } else {
+                bEverUndershot = true;
+                nEstimatedAmountOfWalletFundsReceivedByOtherParty++;
+            }
+            fees = CalculateAmountToSendForDesiredReceivedAmount(nEstimatedAmountOfWalletFundsReceivedByOtherParty, publisherFee, walletInfo);
+            iterations++;
+        }
+        // fees.amount should equal the passed in amount
+        return fees;
+    }
+
+    // Strangely named function, it actually works out the fees and buyer price for a seller price
+    function CalculateAmountToSendForDesiredReceivedAmount(receivedAmount, publisherFee, walletInfo) {
+        if (!walletInfo['wallet_fee']) {
+            return receivedAmount;
+        }
+        publisherFee = (typeof publisherFee == 'undefined') ? 0 : publisherFee;
+        var nSteamFee = parseInt(Math.floor(Math.max(receivedAmount * parseFloat(walletInfo['wallet_fee_percent']), walletInfo['wallet_fee_minimum']) + parseInt(walletInfo['wallet_fee_base'])));
+        var nPublisherFee = parseInt(Math.floor(publisherFee > 0 ? Math.max(receivedAmount * publisherFee, 1) : 0));
+        var nAmountToSend = receivedAmount + nSteamFee + nPublisherFee;
+        return {
+            steam_fee: nSteamFee,
+            publisher_fee: nPublisherFee,
+            fees: nSteamFee + nPublisherFee,
+            amount: parseInt(nAmountToSend)
+        };
+    }
+
     // Get a list of items with description data from the inventory json
-    function denormalizeItems(inventory, contextId) {
+    function denormalizeItems(inventory) {
         var id;
         var item;
         var description;
@@ -179,7 +255,6 @@
             for (var key in description) {
                 item[key] = description[key];
             }
-            item.contextid = contextId;
         }
 
         return inventory.rgInventory;
@@ -188,10 +263,12 @@
     function readCookie(name) {
         var nameEQ = name + "=";
         var ca = document.cookie.split(';');
-        for(var i=0;i < ca.length;i++) {
+        for (var i = 0; i < ca.length; i++) {
             var c = ca[i];
-            while (c.charAt(0)==' ') c = c.substring(1,c.length);
-            if (c.indexOf(nameEQ) == 0) return decodeURIComponent(c.substring(nameEQ.length,c.length));
+            while (c.charAt(0) == ' ')
+                c = c.substring(1, c.length);
+            if (c.indexOf(nameEQ) == 0)
+                return decodeURIComponent(c.substring(nameEQ.length, c.length));
         }
         return null;
     }
@@ -199,42 +276,39 @@
 
 
 
-    var item;
-    var market = new SteamMarket(g_rgAppContextData, g_strInventoryLoadURL);
+    var market = new SteamMarket(g_rgAppContextData, g_strInventoryLoadURL, g_rgWalletInfo);
 
-    market.getInventory(753, function(err, data) {
-        console.log(data);
+    market.getInventory(753, function(err, items) {
+        console.log(items);
 
-        for (var ctx in data) {
-            for (var i in data[ctx]) {
-                item = data[ctx][i];
-                if (!item.marketable) {
-                    console.log('Skipping: ' + item.name);
-                    continue;
-                }
-
-                market.getPriceHistory(item, (function(item) { return function(err, history) {
-                        if (err) {
-                            console.log('Failed to get price history for '+item.name);
-                            return;
-                        }
-                        market.getListings(item, function(err, listings) {
-                            if (err) {
-                                console.log('Failed to get listings for '+item.name);
-                                return;
-                            }
-                            console.log(item.name);
-                            console.log('Average sell price, last hour: '+history[history.length-1][1]);
-                            if (Object.keys(listings).length === 0) {
-                                console.log('Not listed for sale');
-                                return;
-                            }
-                            var firstListing = listings[Object.keys(listings)[0]]
-                            console.log('First listing price: '+firstListing.converted_price + ' + ' + firstListing.converted_fee + ' = ' + (firstListing.converted_price + firstListing.converted_fee));
-                        });
-                };})(item));
+        items.forEach(function(item) {
+            if (!item.marketable) {
+                console.log('Skipping: ' + item.name);
+                return;
             }
-        }
+
+            market.getPriceHistory(item, function(err, history) {
+                if (err) {
+                    console.log('Failed to get price history for ' + item.name);
+                    return;
+                }
+                market.getListings(item, function(err, listings) {
+                    if (err) {
+                        console.log('Failed to get listings for ' + item.name);
+                        return;
+                    }
+                    console.log(item.name);
+                    console.log('Average sell price, last hour: ' + history[history.length - 1][1]);
+                    console.log('Average seller price, last hour: ' + market.getPriceBeforeFees(history[history.length - 1][1]));
+                    if (Object.keys(listings).length === 0) {
+                        console.log('Not listed for sale');
+                        return;
+                    }
+                    var firstListing = listings[Object.keys(listings)[0]];
+                    console.log('First listing price: ' + firstListing.converted_price + ' + ' + firstListing.converted_fee + ' = ' + (firstListing.converted_price + firstListing.converted_fee));
+                });
+            });
+        });
 
     });
-})(jQuery, async, g_rgAppContextData, g_strInventoryLoadURL);
+})(jQuery, async, g_rgAppContextData, g_strInventoryLoadURL, g_rgWalletInfo);
