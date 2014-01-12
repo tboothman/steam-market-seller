@@ -2,8 +2,8 @@
 // @name           Steam market seller
 // @namespace      https://github.com/tboothman/steam-market-seller
 // @description    Quickly sell items on steam market
-// @version        0.4
-// @include        http://steamcommunity.com/id/*/inventory
+// @version        0.5
+// @include        http://steamcommunity.com/id/*/inventory*
 // @require        https://raw.github.com/caolan/async/master/lib/async.js
 // @grant          none
 // ==/UserScript==
@@ -278,9 +278,15 @@
 
 
 
+    function log(text) {
+        logEl.innerHTML += text + '<br/>';
+    }
 
+    function clearLog() {
+        logEl.innerHTML = '';
+    }
 
-    function calculateSellPrice1(history, listings) {
+    function calculateSellPrice(history, listings) {
         // Fairly safe sell
         // Highest average price in the last 24 hours
         // Must be at least 1p below lowest current listing
@@ -313,60 +319,97 @@
         }
     }
 
+    function sellGameItems(appId) {
+        log('Fetching inventory');
+        market.getInventory(appId, function(err, items) {
 
+            var itemQueue = async.queue(function(item, next) {
+                if (!item.marketable) {
+                    console.log('Skipping: ' + item.name);
+                    next();
+                    return;
+                }
+
+                market.getPriceHistory(item, function(err, history) {
+                    if (err) {
+                        console.log('Failed to get price history for ' + item.name);
+                        next();
+                        return;
+                    }
+                    market.getListings(item, function(err, listings) {
+                        if (err) {
+                            console.log('Failed to get listings for ' + item.name);
+                            next();
+                            return;
+                        }
+                        console.log(item.name);
+                        console.log('Average sell price, last hour: ' + history[history.length - 1][1]);
+                        console.log('Average seller price, last hour: ' + market.getPriceBeforeFees(history[history.length - 1][1]));
+                        if (Object.keys(listings).length === 0) {
+                            console.log('Not listed for sale');
+                            next();
+                            return;
+                        }
+                        var firstListing = listings[Object.keys(listings)[0]];
+                        console.log('First listing price: ' + firstListing.converted_price + ' + ' + firstListing.converted_fee + ' = ' + (firstListing.converted_price + firstListing.converted_fee));
+
+                        var sellPrice = calculateSellPrice(history, listings);
+                        console.log('Calculated sell price: ' + sellPrice + ' (' + market.getPriceIncludingFees(sellPrice) + ')');
+                        if (sellPrice > 0) {
+                            sellQueue.concurrency = 1;
+                            sellQueue.push({
+                                item: item,
+                                sellPrice: sellPrice
+                            });
+                        }
+                        next();
+                    });
+                });
+            }, 5);
+
+            itemQueue.drain = function() {
+                if (sellQueue.length() === 0) {
+                    log('Done');
+                }
+            };
+
+            items.forEach(function(item) {
+                itemQueue.push(item);
+            });
+
+        });
+    }
+
+    var logEl = document.createElement('div');
 
     var market = new SteamMarket(g_rgAppContextData, g_strInventoryLoadURL, g_rgWalletInfo);
 
     var sellQueue = async.queue(function(task, next) {
         market.sellItem(task.item, task.sellPrice, function(err, data) {
             if (!err) {
-                console.log(task.item.name + ' put up for sale at ' + task.sellPrice + ' (' + market.getPriceIncludingFees(task.sellPrice) + ')');
+                log(task.item.name + ' put up for sale at ' + task.sellPrice + ' (' + market.getPriceIncludingFees(task.sellPrice) + ')');
             }
             next();
         });
-    }, 1);
+    }, 0);
 
-    market.getInventory(753, function(err, items) {
-        console.log(items);
+    sellQueue.drain = function() {
+        log('Finished putting items up for sale');
+    };
 
-        items.forEach(function(item) {
-            if (!item.marketable) {
-                console.log('Skipping: ' + item.name);
-                return;
-            }
-
-            market.getPriceHistory(item, function(err, history) {
-                if (err) {
-                    console.log('Failed to get price history for ' + item.name);
-                    return;
-                }
-                market.getListings(item, function(err, listings) {
-                    if (err) {
-                        console.log('Failed to get listings for ' + item.name);
-                        return;
-                    }
-                    console.log(item.name);
-                    console.log('Average sell price, last hour: ' + history[history.length - 1][1]);
-                    console.log('Average seller price, last hour: ' + market.getPriceBeforeFees(history[history.length - 1][1]));
-                    if (Object.keys(listings).length === 0) {
-                        console.log('Not listed for sale');
-                        return;
-                    }
-                    var firstListing = listings[Object.keys(listings)[0]];
-                    console.log('First listing price: ' + firstListing.converted_price + ' + ' + firstListing.converted_fee + ' = ' + (firstListing.converted_price + firstListing.converted_fee));
-
-                    var sellPrice = calculateSellPrice1(history, listings);
-                    console.log('Calculated sell price: ' + sellPrice + ' (' + market.getPriceIncludingFees(sellPrice) + ')');
-                    if (sellPrice > 0) {
-                        sellQueue.push({
-                            item: item,
-                            sellPrice: sellPrice
-                        });
-                    }
-                });
-            });
+    $(document).ready(function() {
+        var button = '<div style="display: inline-block; line-height: 69px; vertical-align: top; margin-left: 15px;"><a class="btn_green_white_innerfade btn_medium_wide"><span>Sell all items</span></a></div>';
+        var $button = $(button);
+        $button.children('a').click(function() {
+            var appId = $('.games_list_tabs .active')[0].hash.replace(/^#/, '');
+            sellGameItems(appId);
         });
 
+        $('#inventory_logos')[0].style.height = 'auto';
+        $('#inventory_applogo').after(logEl);
+        $('#inventory_applogo').after($button);
+
     });
+
 
 })(jQuery, async, g_rgAppContextData, g_strInventoryLoadURL, g_rgWalletInfo);
