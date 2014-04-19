@@ -320,63 +320,104 @@
     }
 
     function sellGameItems(appId) {
+        clearLog();
         log('Fetching inventory');
         market.getInventory(appId, function(err, items) {
+            if (err) return log('Something went wrong fetching inventory, try again');
+            sellItems(items);
+        });
+    }
 
-            var itemQueue = async.queue(function(item, next) {
-                if (!item.marketable) {
-                    console.log('Skipping: ' + item.name);
+    function sellFilteredItems() {
+        clearLog();
+        log('Fetching inventory');
+        $('.inventory_ctn').each(function() {
+            var inventory = this;
+            if (inventory.style.display == 'none') {
+                return;
+            }
+
+            var idsToSell = [];
+            $(inventory).find('.itemHolder').each(function() {
+                if (this.style.display == 'none') return;
+
+                $(this).find('.item').each(function() {
+                    var item = this;
+                    var matches = item.id.match(/_(\-?\d+)$/);
+                    if (matches) {
+                        idsToSell.push(matches[1]);
+                    }
+                });
+            });
+
+            var appId = $('.games_list_tabs .active')[0].hash.replace(/^#/, '');
+            market.getInventory(appId, function(err, items) {
+                if (err) return log('Something went wrong fetching inventory, try again');
+
+                var filteredItems = [];
+                items.forEach(function(item) {
+                    if (idsToSell.indexOf(item.id) !== -1) {
+                        filteredItems.push(item);
+                    }
+                });
+                sellItems(filteredItems);
+            });
+        });
+    }
+
+    function sellItems(items) {
+        var itemQueue = async.queue(function(item, next) {
+            if (!item.marketable) {
+                console.log('Skipping: ' + item.name);
+                next();
+                return;
+            }
+
+            market.getPriceHistory(item, function(err, history) {
+                if (err) {
+                    console.log('Failed to get price history for ' + item.name);
                     next();
                     return;
                 }
-
-                market.getPriceHistory(item, function(err, history) {
+                market.getListings(item, function(err, listings) {
                     if (err) {
-                        console.log('Failed to get price history for ' + item.name);
+                        console.log('Failed to get listings for ' + item.name);
                         next();
                         return;
                     }
-                    market.getListings(item, function(err, listings) {
-                        if (err) {
-                            console.log('Failed to get listings for ' + item.name);
-                            next();
-                            return;
-                        }
-                        console.log(item.name);
-                        console.log('Average sell price, last hour: ' + history[history.length - 1][1]);
-                        console.log('Average seller price, last hour: ' + market.getPriceBeforeFees(history[history.length - 1][1]));
-                        if (Object.keys(listings).length === 0) {
-                            console.log('Not listed for sale');
-                            next();
-                            return;
-                        }
-                        var firstListing = listings[Object.keys(listings)[0]];
-                        console.log('First listing price: ' + firstListing.converted_price + ' + ' + firstListing.converted_fee + ' = ' + (firstListing.converted_price + firstListing.converted_fee));
-
-                        var sellPrice = calculateSellPrice(history, listings);
-                        console.log('Calculated sell price: ' + sellPrice + ' (' + market.getPriceIncludingFees(sellPrice) + ')');
-                        if (sellPrice > 0) {
-                            sellQueue.concurrency = 1;
-                            sellQueue.push({
-                                item: item,
-                                sellPrice: sellPrice
-                            });
-                        }
+                    console.log(item.name);
+                    console.log('Average sell price, last hour: ' + history[history.length - 1][1]);
+                    console.log('Average seller price, last hour: ' + market.getPriceBeforeFees(history[history.length - 1][1]));
+                    if (Object.keys(listings).length === 0) {
+                        console.log('Not listed for sale');
                         next();
-                    });
+                        return;
+                    }
+                    var firstListing = listings[Object.keys(listings)[0]];
+                    console.log('First listing price: ' + firstListing.converted_price + ' + ' + firstListing.converted_fee + ' = ' + (firstListing.converted_price + firstListing.converted_fee));
+
+                    var sellPrice = calculateSellPrice(history, listings);
+                    console.log('Calculated sell price: ' + sellPrice + ' (' + market.getPriceIncludingFees(sellPrice) + ')');
+                    if (sellPrice > 0) {
+                        sellQueue.concurrency = 1;
+                        sellQueue.push({
+                            item: item,
+                            sellPrice: sellPrice
+                        });
+                    }
+                    next();
                 });
-            }, 5);
-
-            itemQueue.drain = function() {
-                if (sellQueue.length() === 0) {
-                    log('Done');
-                }
-            };
-
-            items.forEach(function(item) {
-                itemQueue.push(item);
             });
+        }, 5);
 
+        itemQueue.drain = function() {
+            if (sellQueue.length() === 0) {
+                log('Done');
+            }
+        };
+
+        items.forEach(function(item) {
+            itemQueue.push(item);
         });
     }
 
@@ -395,15 +436,17 @@
 
     sellQueue.drain = function() {
         log('Finished putting items up for sale');
-    };
+    }
 
     $(document).ready(function() {
-        var button = '<div style="display: inline-block; line-height: 69px; vertical-align: top; margin-left: 15px;"><a class="btn_green_white_innerfade btn_medium_wide"><span>Sell all items</span></a></div>';
+        var button = '<div style="display: inline-block; line-height: 69px; vertical-align: top; margin-left: 15px;"><a class="btn_green_white_innerfade btn_medium_wide sellall"><span>Sell all items</span></a> <a class="btn_green_white_innerfade btn_medium_wide sellvisible"><span>Sell visible items</span></a></div>';
         var $button = $(button);
-        $button.children('a').click(function() {
+        $button.children('.sellall').click(function() {
             var appId = $('.games_list_tabs .active')[0].hash.replace(/^#/, '');
             sellGameItems(appId);
         });
+
+        $button.children('.sellvisible').click(sellFilteredItems);
 
         $('#inventory_logos')[0].style.height = 'auto';
         $('#inventory_applogo').after(logEl);
