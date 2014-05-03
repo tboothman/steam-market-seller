@@ -289,7 +289,7 @@
     function calculateSellPrice(history, listings) {
         // Fairly safe sell
         // Highest average price in the last 24 hours
-        // Must be at least 1p below lowest current listing
+        // Must be at least lowest current listing - 1p
 
         var oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
         var highestAverage = 0;
