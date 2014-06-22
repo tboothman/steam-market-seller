@@ -165,13 +165,13 @@
     //	 "asset":{"currency":0,"appid":570,"contextid":"2","id":"1113797403","amount":"1"}
     // }
     SteamMarket.prototype.getListings = function(item, callback/*err, listings*/) {
-        $.get('http://steamcommunity.com/market/listings/' + item.appid + '/' +
-                encodeURIComponent(item.market_hash_name) + '/render/?query=&search_descriptions=0&start=0&count=10', function(data) {
-
-            if (!data || !data.success || !data.listinginfo) {
+        $.get('http://steamcommunity.com/market/listings/' + item.appid + '/' + item.market_hash_name, function(page) {
+            var matches = /var g_rgListingInfo = (.+);/.exec(page);
+            var listingInfo = JSON.parse(matches[1]);
+            if (!listingInfo) {
                 return callback(true);
             }
-            callback(null, data.listinginfo);
+            callback(null, listingInfo);
         });
     };
 
