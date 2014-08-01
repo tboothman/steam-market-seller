@@ -2,7 +2,7 @@
 // @name           Steam market seller
 // @namespace      https://github.com/tboothman/steam-market-seller
 // @description    Quickly sell items on steam market
-// @version        0.5
+// @version        0.6
 // @include        http://steamcommunity.com/id/*/inventory*
 // @require        https://raw.github.com/caolan/async/master/lib/async.js
 // @grant          none
@@ -287,6 +287,17 @@
     }
 
     function calculateSellPrice(history, listings) {
+        return calculateSellPrice_safe(history, listings);
+        //return calculateSellPrice_undercut(history, listings);
+    }
+
+    function calculateSellPrice_undercut(history, listings) {
+        // Sell at 1p below the current lowest listing
+        var firstListing = listings[Object.keys(listings)[0]];
+        return firstListing.converted_price - 1;
+    }
+
+    function calculateSellPrice_safe(history, listings) {
         // Fairly safe sell
         // Highest average price in the last 24 hours
         // Must be at least lowest current listing - 1p
