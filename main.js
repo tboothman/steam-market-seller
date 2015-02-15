@@ -289,12 +289,19 @@
     function calculateSellPrice(history, listings) {
         return calculateSellPrice_safe(history, listings);
         //return calculateSellPrice_undercut(history, listings);
+        //return calculateSellPrice_matchlowest(history, listings);
     }
 
     function calculateSellPrice_undercut(history, listings) {
         // Sell at 1p below the current lowest listing
         var firstListing = listings[Object.keys(listings)[0]];
         return firstListing.converted_price - 1;
+    }
+
+    function calculateSellPrice_matchlowest(history, listings) {
+        // Sell at the current lowest listing
+        var firstListing = listings[Object.keys(listings)[0]];
+        return firstListing.converted_price;
     }
 
     function calculateSellPrice_safe(history, listings) {
