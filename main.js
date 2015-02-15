@@ -2,7 +2,7 @@
 // @name           Steam market seller
 // @namespace      https://github.com/tboothman/steam-market-seller
 // @description    Quickly sell items on steam market
-// @version        0.6
+// @version        0.7
 // @include        http://steamcommunity.com/id/*/inventory*
 // @require        https://raw.github.com/caolan/async/master/lib/async.js
 // @grant          none
@@ -376,7 +376,10 @@
         });
     }
 
+    var processingItems = false;
+
     function sellItems(items) {
+        processingItems = true;
         var itemQueue = async.queue(function(item, next) {
             if (!item.marketable) {
                 console.log('Skipping: ' + item.name);
@@ -396,21 +399,20 @@
                         next();
                         return;
                     }
+                    console.log('============================')
                     console.log(item.name);
-                    console.log('Average sell price, last hour: ' + history[history.length - 1][1]);
-                    console.log('Average seller price, last hour: ' + market.getPriceBeforeFees(history[history.length - 1][1]));
+                    console.log('Average sell price, last hour: ' + market.getPriceBeforeFees(history[history.length - 1][1]) + ' (' + history[history.length - 1][1] + ')');
                     if (Object.keys(listings).length === 0) {
                         console.log('Not listed for sale');
                         next();
                         return;
                     }
                     var firstListing = listings[Object.keys(listings)[0]];
-                    console.log('First listing price: ' + firstListing.converted_price + ' + ' + firstListing.converted_fee + ' = ' + (firstListing.converted_price + firstListing.converted_fee));
+                    console.log('First listing price: ' + firstListing.converted_price + ' (' + (firstListing.converted_price + firstListing.converted_fee) + ')');
 
                     var sellPrice = calculateSellPrice(history, listings);
                     console.log('Calculated sell price: ' + sellPrice + ' (' + market.getPriceIncludingFees(sellPrice) + ')');
                     if (sellPrice > 0) {
-                        sellQueue.concurrency = 1;
                         sellQueue.push({
                             item: item,
                             sellPrice: sellPrice
@@ -425,6 +427,7 @@
             if (sellQueue.length() === 0) {
                 log('Done');
             }
+            processingItems = false;
         };
 
         items.forEach(function(item) {
@@ -443,10 +446,12 @@
             }
             next();
         });
-    }, 0);
+    }, 1);
 
     sellQueue.drain = function() {
-        log('Finished putting items up for sale');
+        if (!processingItems) {
+            log('Finished putting items up for sale');
+        }
     }
 
     $(document).ready(function() {
