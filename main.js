@@ -4,6 +4,7 @@
 // @description    Quickly sell items on steam market
 // @version        0.7
 // @include        http://steamcommunity.com/id/*/inventory*
+// @include        http://steamcommunity.com/profiles/*/inventory*
 // @require        https://raw.github.com/caolan/async/master/lib/async.js
 // @grant          none
 // ==/UserScript==
