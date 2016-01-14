@@ -2,7 +2,7 @@
 // @name           Steam market seller
 // @namespace      https://github.com/tboothman/steam-market-seller
 // @description    Quickly sell items on steam market
-// @version        0.7
+// @version        0.7.1
 // @include        http://steamcommunity.com/id/*/inventory*
 // @include        http://steamcommunity.com/profiles/*/inventory*
 // @require        https://raw.github.com/caolan/async/master/lib/async.js
@@ -112,6 +112,9 @@
             success: function(data) {
                 callback(null, data);
             },
+            error: function(){
+                return callback(true);
+            },
             crossDomain: true,
             xhrFields: {withCredentials: true},
             dataType: 'json'
@@ -128,22 +131,26 @@
     // Prices are ordered by oldest to most recent
     // Price is inclusive of fees
     SteamMarket.prototype.getPriceHistory = function(item, callback/*(err, priceHistory)*/) {
-        $.get('http://steamcommunity.com/market/pricehistory/', {
-            appid: item.appid,
-            market_hash_name: item.market_hash_name
-        }, function(data) {
-            if (!data || !data.success || !data.prices) {
-                return callback(true);
-            }
+        try{
+            $.get('http://steamcommunity.com/market/pricehistory/', {
+                appid: item.appid,
+                market_hash_name: item.market_hash_name
+            }, function(data) {
+                if (!data || !data.success || !data.prices) {
+                    return callback(true);
+                }
 
-            // Multiply out prices so they're in pennies
-            for (var i = 0; i < data.prices.length; i++) {
-                data.prices[i][1] *= 100;
-                data.prices[i][2] = parseInt(100, 10);
-            }
+                // Multiply out prices so they're in pennies
+                for (var i = 0; i < data.prices.length; i++) {
+                    data.prices[i][1] *= 100;
+                    data.prices[i][2] = parseInt(100, 10);
+                }
 
-            callback(null, data.prices);
-        }, 'json');
+                callback(null, data.prices);
+            }, 'json');
+        }catch(e){
+            return callback(true);
+        }
     };
 
     // Get the sales listings for this item in the market
@@ -166,14 +173,21 @@
     //	 "asset":{"currency":0,"appid":570,"contextid":"2","id":"1113797403","amount":"1"}
     // }
     SteamMarket.prototype.getListings = function(item, callback/*err, listings*/) {
-        $.get('http://steamcommunity.com/market/listings/' + item.appid + '/' + item.market_hash_name, function(page) {
-            var matches = /var g_rgListingInfo = (.+);/.exec(page);
-            var listingInfo = JSON.parse(matches[1]);
-            if (!listingInfo) {
+        try{
+            $.get('http://steamcommunity.com/market/listings/' + item.appid + '/' + item.market_hash_name, function(page) {
+                
+                var matches = /var g_rgListingInfo = (.+);/.exec(page);
+                var listingInfo = JSON.parse(matches[1]);
+                if (!listingInfo) {
+                    return callback(true);
+                }
+                callback(null, listingInfo);
+            }).fail(function() {
                 return callback(true);
-            }
-            callback(null, listingInfo);
-        });
+            });
+        }catch(e){
+            return callback(true);
+        }
     };
 
     // Calculate the price before fees (seller price) from the buyer price
@@ -429,7 +443,7 @@
                     next();
                 });
             });
-        }, 5);
+        }, 2);
 
         itemQueue.drain = function() {
             if (sellQueue.length() === 0) {
@@ -439,7 +453,9 @@
         };
 
         items.forEach(function(item) {
-            itemQueue.push(item);
+            setTimeout(function(){
+                itemQueue.push(item);
+            }, 500); // have some healthy delay or steam will block you for flooding
         });
     }
 
