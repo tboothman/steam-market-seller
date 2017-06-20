@@ -57,6 +57,7 @@
 
         // Build the requests for each inventory context as tasks for async
         for (contextId in game.rgContexts) {
+            if ( contextId == 1 ) { continue; }
             tasks[contextId] = (function(contextId) {
                 return function(next) {
                     $.get(self.inventoryUrl + gameId + '/' + contextId + '/', function(data) {
