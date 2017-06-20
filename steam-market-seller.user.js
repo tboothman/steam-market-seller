@@ -2,7 +2,7 @@
 // @name           Steam market seller
 // @namespace      https://github.com/tboothman/steam-market-seller
 // @description    Quickly sell items on steam market
-// @version        0.7.1
+// @version        0.7.2
 // @include        http://steamcommunity.com/id/*/inventory*
 // @include        http://steamcommunity.com/profiles/*/inventory*
 // @require        https://raw.githubusercontent.com/caolan/async/master/dist/async.min.js
@@ -175,7 +175,9 @@
     // }
     SteamMarket.prototype.getListings = function(item, callback/*err, listings*/) {
         try{
-            $.get('http://steamcommunity.com/market/listings/' + item.appid + '/' + item.market_hash_name, function(page) {
+            var url = 'http://steamcommunity.com/market/listings/';
+            url += item.appid + '/' + encodeURIComponent(item.market_hash_name);
+            $.get(url, function(page) {
                 
                 var matches = /var g_rgListingInfo = (.+);/.exec(page);
                 var listingInfo = JSON.parse(matches[1]);
