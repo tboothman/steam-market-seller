@@ -362,6 +362,7 @@
         });
     }
 
+    var cachedItems;
     function sellFilteredItems() {
         clearLog();
         log('Fetching inventory');
@@ -371,33 +372,50 @@
                 return;
             }
 
-            var idsToSell = [];
-            $(inventory).find('.itemHolder').each(function() {
-                if (this.style.display == 'none') return;
+            $(inventory).find('.inventory_page').each(function() {
+              var inventoryPage = this;
+              if (this.style.display == 'none') {
+                return;
+              }
+              var idsToSell = [];
+              $(inventoryPage).find('.itemHolder').each(function() {
+                  if (this.style.display == 'none') return;
 
-                $(this).find('.item').each(function() {
-                    var item = this;
-                    var matches = item.id.match(/_(\-?\d+)$/);
-                    if (matches) {
-                        idsToSell.push(matches[1]);
-                    }
+                  $(this).find('.item').each(function() {
+                      var item = this;
+                      var matches = item.id.match(/_(\-?\d+)$/);
+                      if (matches) {
+                          idsToSell.push(matches[1]);
+                      }
+                  });
+              });
+
+              var appId = $('.games_list_tabs .active')[0].hash.replace(/^#/, '');
+              if (cachedItems) {
+                    var filteredItems = [];
+                    cachedItems.forEach(function(item) {
+                        if (idsToSell.indexOf(item.id) !== -1) {
+                            filteredItems.push(item);
+                        }
+                    });
+                    sellItems(filteredItems);
+              } else {
+                market.getInventory(appId, function(err, items) {
+                    if (err) return log('Something went wrong fetching inventory, try again');
+
+                    cachedItems = items;
+                    var filteredItems = [];
+                    items.forEach(function(item) {
+                        if (idsToSell.indexOf(item.id) !== -1) {
+                            filteredItems.push(item);
+                        }
+                    });
+                    sellItems(filteredItems);
                 });
+              }
             });
-
-            var appId = $('.games_list_tabs .active')[0].hash.replace(/^#/, '');
-            market.getInventory(appId, function(err, items) {
-                if (err) return log('Something went wrong fetching inventory, try again');
-
-                var filteredItems = [];
-                items.forEach(function(item) {
-                    if (idsToSell.indexOf(item.id) !== -1) {
-                        filteredItems.push(item);
-                    }
-                });
-                sellItems(filteredItems);
-            });
-        });
-    }
+          });
+      }
 
     var processingItems = false;
 
