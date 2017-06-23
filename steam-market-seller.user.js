@@ -474,9 +474,7 @@
         };
 
         items.forEach(function(item) {
-            setTimeout(function(){
-                itemQueue.push(item);
-            }, 500); // have some healthy delay or steam will block you for flooding
+            itemQueue.push(item);
         });
     }
 
