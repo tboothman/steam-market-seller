@@ -5,6 +5,8 @@
 // @version        0.7.2
 // @include        http://steamcommunity.com/id/*/inventory*
 // @include        http://steamcommunity.com/profiles/*/inventory*
+// @include        https://steamcommunity.com/id/*/inventory*
+// @include        https://steamcommunity.com/profiles/*/inventory*
 // @require        https://raw.githubusercontent.com/caolan/async/master/dist/async.min.js
 // @grant          none
 // ==/UserScript==
